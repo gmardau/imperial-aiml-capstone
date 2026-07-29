@@ -1,1 +1,1 @@
-# imperial-aiml-capstone
+# Imperial AI/ML Capstone Project
