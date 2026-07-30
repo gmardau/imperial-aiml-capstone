@@ -7,8 +7,8 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF
 
 # --- Load the initial data ---
-inputs = {n: np.load(f"initial_data/function_{n}/initial_inputs.npy") for n in range(1,9)}
-outputs = {n: np.load(f"initial_data/function_{n}/initial_outputs.npy") for n in range(1,9)}
+inputs = {n: np.load(f"../initial_data/function_{n}/initial_inputs.npy") for n in range(1,9)}
+outputs = {n: np.load(f"../initial_data/function_{n}/initial_outputs.npy") for n in range(1,9)}
 
 # --- Select the function number from command line argument ---
 function_no = int(sys.argv[1]) if len(sys.argv) > 1 else 1
