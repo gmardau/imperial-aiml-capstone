@@ -1,19 +1,19 @@
-This week I've changes 3 major things in the approach.
+This week I've changed 3 major things in the approach.
 
 ### Normalisation
-The first is normalisation. When running the models I've noticed that the acquisition function's proposed point was always an exploration one, no matter the value of Kappa I would set for UCB. I then noticed that this would happen for function that had negative values. Some are minimisation problems whole values are negative to convert it into a minimization problem. Because the GP model would assume the value 0 in unexplored regions, both the mean and the standard deviation were highest in those regions, leading to no exploitation whatsoever.
+The first is normalisation. When running the models for some functions I've noticed that the acquisition function's proposed point was always an exploration one, no matter the value of Kappa I would set for UCB. I then noticed that this would happen for functions that had negative values. Some are minimisation problems whose values are negated to convert them into a maximisation problems. Because the GP model would assume the value 0 in unexplored regions, both the mean and the standard deviation were highest in those regions, leading to no exploitation whatsoever.
 Once I started normalizing the y when constructing the model, then query proposal were much better and controllable.
 
 ### Gaussian Processor Kernels
 The second thing I've changed was the kernels used in the GP model, and their parameters.
 For one, I've started using a constant/scalar kernel alongside the RBF kernel I was already using.
 For the RBF kernel, I started using one value per dimension, which allows one to controll the significance of each dimension on the output, which previously wasn't happening.
-Finally, I've allowed the model to adapt the length scale parameters, rather than let it as fixed, which also helps the model adapt to the input datapoints. I've still step bounds to the length scale parameter, since the model can very easily overfit a dimension and underfit others given the low amount of input data points.
+Finally, I've allowed the model to adapt the length scale parameters, rather than let it as fixed, which also helps the model adapt to the input datapoints. I've still set bounds to the length scale parameter, since the model can very easily overfit some dimensions and underfit others given the low amount of input data points.
 I've also allowed the model to perform several starts, reusing the kernel parameters from previous runs.
 
 ### Finding the maximum of the acquisition function
 Previously, I was still evaluating the acquisition function based on a uniform grid.
-This had a problem. With more dimensions, the grid would become really sparse. E.g.: because I was only evaluating around 1M points, evenly distributed accross dimensions, it meant that the last function was only being evaluated on 3 points per dimension: 0, 0.5, and 1. In previous weeks, I assumed this had to do with a higher value of UCB, which was tending towards exploration, but I've only realised now this wasn't the case.
+This had a problem. With more dimensions, the grid would become really sparse. E.g.: because I was only evaluating around 1M points, evenly distributed across dimensions, it meant that the last function was only being evaluated on 3 points per dimension: 0, 0.5, and 1. In previous weeks, I assumed this had to do with a higher value of UCB, which was tending towards exploration, but I've only realised now this wasn't the case.
 Instead, I've used a gradient descent method to find the maximum of the UCB function.
 I start with 500 uniformly distributed samples, which somewhat equates to exploration. From those I choose the 50 best and run the gradient descent method from there.
 Because the UCB function is quick to evaluate and much smoother than the actual function, given the low number of input datapoints, grandient descent is very effective without much work.
