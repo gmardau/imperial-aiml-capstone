@@ -1,3 +1,4 @@
+import math
 import sys
 
 import numpy as np
@@ -14,29 +15,81 @@ from sklearn.gaussian_process.kernels import RBF, ConstantKernel
 import warnings
 from sklearn.exceptions import ConvergenceWarning
 
+import torch
+from botorch.models import SingleTaskGP
+from botorch.fit import fit_gpytorch_mll
+from botorch.acquisition import UpperConfidenceBound
+from botorch.optim import optimize_acqf
+from gpytorch.mlls import ExactMarginalLogLikelihood
+from botorch.models.transforms.outcome import Standardize
+from gpytorch.kernels import MaternKernel, ScaleKernel
+from gpytorch.constraints import Interval
+
 WEEK_NO = 4
-# --- Select the function number from command line argument ---
+
+# Select the function number from command line argument
 FUNCTION_NO = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+
+LENGTH_SCALE_BOUNDS = {
+    1: (0.02, 0.3),
+    2: (0.05, 0.5),
+    3: (0.1, 1.0),
+    4: (0.05, 0.5),
+    5: (0.1, 1.5),
+    6: (0.05, 0.75),
+    7: (0.05, 1.0),
+    8: (0.05, 1.0)
+}[FUNCTION_NO]
+
+NU_SMOOTHNESS = {
+    1: 1.5,
+    2: 1.5,
+    3: 2.5,
+    4: 1.5,
+    5: 2.5,
+    6: 2.5,
+    7: 2.5,
+    8: 2.5
+}[FUNCTION_NO]
+
+# The UCB acquisition function is defined as: UCB(x) = post_mean(x) + kappa * post_std(x)
+# Kappa is a parameter that controls the trade-off between exploration and exploitation.
+# Lower values of kappa make the acquisition function more exploitative, while higher values make it more exploratory.
+UCB_KAPPA = {
+    1: 3,
+    2: 3,
+    3: 2,
+    4: 3,
+    5: 1.5,
+    6: 2.5,
+    7: 2,
+    8: 2.5
+}[FUNCTION_NO]
+
 
 def main():
 
     # --- Read data from files ---
-    X, y = read_data(plot_datapoints=True)
+    X, y = read_data(debug=False, plot_datapoints=False)
     N = X.shape[1]
 
-    # --- Fit the Gaussian Process model ---
-    gp = build_gp(N)
-    fit_gp(gp, X, y)
+    # --- Fit the Gaussian Process model using scikit-learn ---
+    # scikit_gp = SciKitGP()
+    # scikit_gp.fit(X, y, debug=True)
+    # scikit_gp.find_acquisition_max(debug=True)
 
-    # --- Find the maximum of the acquisition function (Upper Confidence Bound) ---
-    acquisition_max_X, acquisition_max_y = find_acquisition_max(gp, N)
+    # --- Fit the Gaussian Process model using BoTorch ---
+    botorch_gp = BoTorchGP()
+    botorch_gp.fit(X, y, debug=True)
+    botorch_gp.find_acquisition_max(debug=True)
 
     # --- Plot the GP results ---
-    plot_gp_results(gp, X, y, acquisition_max_X, acquisition_max_y)
+    # plot_gp_results(scikit_gp, X, y)
+    plot_gp_results(botorch_gp, X, y)
 
 
 # --- Read data from files and plot outputs ---
-def read_data(plot_datapoints=True):
+def read_data(debug=False, plot_datapoints=True):
 
     # --- Load the initial data ---
     X = np.load(f"../initial_data/function_{FUNCTION_NO}/initial_inputs.npy")
@@ -55,14 +108,15 @@ def read_data(plot_datapoints=True):
             y = np.append(y, np.array(new_value))
 
     # --- Print the inputs and outputs for the selected function ---
-    print("\n--- Data points ---")
-    for Xi, yi in zip(X, y):
-        print(Xi, yi)
+    if debug:
+        print("\n--- Data points ---")
+        for Xi, yi in zip(X, y):
+            print(Xi, yi)
 
     # --- Plot the outputs with colors ---
     if plot_datapoints:
         sorted_indices = np.argsort(y)
-        # sorted_indices = np.arange(len(y)) # Uncomment this line to disable sorting and keep the original order of the data
+        sorted_indices = np.arange(len(y)) # Uncomment this line to disable sorting and keep the original order of the data
         rank_indices = np.argsort(sorted_indices)
         previous_data_indices = rank_indices[:-WEEK_NO+1]
         latest_data_indices = rank_indices[-WEEK_NO+1:]
@@ -94,121 +148,17 @@ def read_data(plot_datapoints=True):
     return X, y
 
 
-# --- Define the Gaussian Process model ---
-def build_gp(N):
-
-    # The constant kernel allow the regressor to control the variation of the function.
-    # i.e. it doesn't assume that variation is constant across the function space.
-    # If not used, the RBF kernel could incorrectly be adjusted to compensate for this variation,
-    # which would intefere with the length scale calculation (the smoothness of the function).
-    const_kernel = ConstantKernel(
-        constant_value=1.0,
-        constant_value_bounds=(0.01, 100))
-
-    # The RBF kernel allows the regressor to control the smoothness of the function.
-    rbf_kernel = RBF(
-        # Lower length scale values make the GP more sensitive to changes in the function (i.e. sharper), while higher values make it smoother.
-        # This value defines the initial length scale used by the regressor. For functions with inputs between 0 and 1, the recommended initial value is 0.2.
-        # Also, because different dimensions can have different effects to the output, a list of length scales is passed,
-        # one per dimensions, so that the regressor that update them independently.
-        # This makes this kernel an Automatic Relevance Determination (ARD) kernel.
-        length_scale=np.full(N, 0.2),
-        # Allows the GP regressor to search length scales within this range
-        # For functions with inputs between 0 and 1, the recommended range is 0.1-0.5.
-        # Less than 0.1 is highly not recommended given the low amount of input datapoints,
-        # as it would cause the regressor to quickly overfit and assume that one dimension is much more significant than another.
-        # The only exception to this is function no 1, which seems to be really sharp, and would benefit from lower length scale values.
-        length_scale_bounds=(0.1, 0.5) if FUNCTION_NO != 1 else (0.05, 0.5))
-
-    gp = GaussianProcessRegressor(
-        kernel = const_kernel * rbf_kernel,
-        # This ensures that internally, y values are normalized around 0.
-        # Not doing this would cause problems since the post_mean function assumes the value 0 in unexplored regions.
-        # For example, in functions with only negative values, all explored regions with maxima would have a lower value
-        # than unexplored regions. Because the post std also assumes higher values in unexplored regions,
-        # the UCB acquisition function would always prioritise exploration, regardless of Kappa (post_mean + K * post_std).
-        normalize_y=True,
-        # This allows the regressor to run multiple times, and carrying over the adjusted kernel's prameters from previous runs.
-        n_restarts_optimizer=5)
-
-    return gp
-
-
-# --- Fit the Gaussian Process model ---
-def fit_gp(gp, X, y):
-
-    with warnings.catch_warnings():
-        # During the GP setup, some constraints are applied to the kernel parameters, which can cause convergence warnings during fitting.
-        warnings.filterwarnings("ignore", category=ConvergenceWarning)
-        gp.fit(X, y)
-
-    print("\n--- Kernel parameters after fitting ---")
-    print("Constant kernel value (variation):", gp.kernel_.k1.constant_value)
-    # Indirectly, a high length scale value means that the dimension has less significance on the output.
-    print("RBF kernel length scale per dimension (smoothness):", gp.kernel_.k2.length_scale)
-
-
-# --- Evaluate the GP model on new data points ---
-def evaluate_gp(gp, X, grid=True):
-
-    if grid:
-        flattened_X = np.column_stack([m.ravel() for m in X])
-        mean, std = gp.predict(flattened_X, return_std=True)
-        mean = mean.reshape(*X[0].shape)
-        std = std.reshape(*X[0].shape)
-    else:
-        mean, std = gp.predict(X, return_std=True)
-
-    return mean, std
-
-
-# --- Find the maximum of the acquisition function (Upper Confidence Bound) ---
-def find_acquisition_max(gp, N, initial_candidates=500, n_starts=50):
-    
-    # Generate the starting points for the search as the best from a list of initial candidates
-    candidates = np.random.uniform(0, 1, size=(max(initial_candidates, n_starts), N))
-    candidates_acquisition_values = evaluate_acquisition(gp, candidates)
-    starts = candidates[np.argsort(candidates_acquisition_values)[-n_starts:]]
-
-    # Use the starting points to find the maximum of the acquisition function using the L-BFGS-B method (based on gradient descent)
-    best_x, best_y = None, np.inf
-    for x in starts:
-        # UCB is a maximization function, but the minimize function is a minimization technique, so we need to negate the value of UCB.
-        result = minimize(lambda x: -evaluate_acquisition(gp, [x]), x, bounds=[(0, 1)] * N, method='L-BFGS-B')
-        if result.fun < best_y:
-            best_y = result.fun
-            best_x = result.x
-
-    print("\n--- Acquisition function ---")
-    print("Maximum at:", best_x)
-
-    return best_x, -best_y
-
-
-# --- Evaluate the Upper Confidence Bound acquisition function ---
-def evaluate_acquisition(gp, X):
-    return compute_acquisition(*evaluate_gp(gp, X, grid=False))
-
-def compute_acquisition(mean, std):
-    # The UCB acquisition function is defined as: UCB(x) = post_mean(x) + kappa * post_std(x)
-    # Kappa is a parameter that controls the trade-off between exploration and exploitation.
-    # Lower values of kappa make the acquisition function more exploitative, while higher values make it more exploratory.
-    INITIAL_UCB_KAPPA = {1: 3, 2: 3, 3: 2, 4: 3, 5: 5, 6: 3, 7: 3, 8: 3}
-    # For now, we will use the same kappa value for all iterations, but ideally it should decrease over time as more data is collected.
-    # This is because as we collect more data, we become more confident in our model and can afford to be more exploitative.
-    kappa = INITIAL_UCB_KAPPA[FUNCTION_NO]
-    return mean + kappa * std
-
-
 # --- Plot the GP and acquisition function results ---
-def plot_gp_results(gp, X, y, acquisition_max_X, acquisition_max_y):
+def plot_gp_results(model, X, y):
+    
     N = X.shape[1]
 
     # --- Plotting for 2D cases ---
     if N == 1:
         linspace = np.linspace(0, 1, 100)
-        mean, std = evaluate_gp(gp, linspace.reshape(-1, 1), grid=False)
-        acquisition = compute_acquisition(mean, std)
+        mean, std = model.evaluate(linspace.reshape(-1, 1), grid=False)
+        acquisition = model.evaluate_acquisition(linspace.reshape(-1, 1), grid=False)
+        acquisition_max_X, acquisition_max_y = model.find_acquisition_max()
 
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot()
@@ -243,8 +193,9 @@ def plot_gp_results(gp, X, y, acquisition_max_X, acquisition_max_y):
     if N == 2:
         linspace = np.linspace(0, 1, 25)
         mesh = np.meshgrid(*(linspace,) * N, indexing='ij')
-        mean, std = evaluate_gp(gp, mesh, grid=True)
-        acquisition = compute_acquisition(mean, std)
+        mean, std = model.evaluate(mesh, grid=True)
+        acquisition = model.evaluate_acquisition(mesh, grid=True)
+        acquisition_max_X, acquisition_max_y = model.find_acquisition_max()
 
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
@@ -281,8 +232,9 @@ def plot_gp_results(gp, X, y, acquisition_max_X, acquisition_max_y):
     if N == 3:
         linspace = np.linspace(0, 1, 20)
         mesh = np.meshgrid(*(linspace,) * N, indexing='ij')
-        mean, std = evaluate_gp(gp, mesh, grid=True)
-        acquisition = compute_acquisition(mean, std)
+        mean, std = model.evaluate(mesh, grid=True)
+        acquisition = model.evaluate_acquisition(mesh, grid=True)
+        acquisition_max_X, acquisition_max_y = model.find_acquisition_max()
 
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
@@ -311,6 +263,8 @@ def plot_gp_results(gp, X, y, acquisition_max_X, acquisition_max_y):
 
     # --- Plotting for higher-dimensional cases (5D+) ---
     if N > 3:
+        acquisition_max_X, _ = model.find_acquisition_max()
+
         fig, ax = plt.subplots(figsize=(10, 6))
 
         # Normalize y for colormap
@@ -343,6 +297,199 @@ def plot_gp_results(gp, X, y, acquisition_max_X, acquisition_max_y):
         # Display the plot
         plt.tight_layout()
         plt.show()
+
+
+class GPModel:
+
+    N = None
+
+    def fit(self, X, y, debug=False):
+        raise NotImplementedError("Subclasses should implement this method.")
+
+    def evaluate(self, X, grid=False):
+        raise NotImplementedError("Subclasses should implement this method.")
+
+    def evaluate_acquisition(self, X, grid=False):
+        raise NotImplementedError("Subclasses should implement this method.")
+
+    def find_acquisition_max(self, debug=False):
+        raise NotImplementedError("Subclasses should implement this method.")
+
+class SciKitGP(GPModel):
+
+    # --- Fit the Gaussian Process model ---
+    def fit(self, X, y, debug=False):
+
+        self.N = X.shape[1]
+
+        # The constant kernel allow the regressor to control the variation of the function.
+        # i.e. it doesn't assume that variation is constant across the function space.
+        # If not used, the RBF kernel could incorrectly be adjusted to compensate for this variation,
+        # which would intefere with the length scale calculation (the smoothness of the function).
+        const_kernel = ConstantKernel(
+            constant_value=1.0,
+            constant_value_bounds=(0.01, 100)
+        )
+
+        # The RBF kernel allows the regressor to control the smoothness of the function.
+        rbf_kernel = RBF(
+            # Lower length scale values make the GP more sensitive to changes in the function (i.e. sharper), while higher values make it smoother.
+            # This value defines the initial length scale used by the regressor. For functions with inputs between 0 and 1, the recommended initial value is 0.2.
+            # Also, because different dimensions can have different effects to the output, a list of length scales is passed,
+            # one per dimensions, so that the regressor that update them independently.
+            # This makes this kernel an Automatic Relevance Determination (ARD) kernel.
+            length_scale=np.full(X.shape[1], 0.2),
+            # Allows the GP regressor to search length scales within this range
+            # For functions with inputs between 0 and 1, the recommended range is 0.1-0.5.
+            # Less than 0.1 is highly not recommended given the low amount of input datapoints,
+            # as it would cause the regressor to quickly overfit and assume that one dimension is much more significant than another.
+            # The only exception to this is function no 1, which seems to be really sharp, and would benefit from lower length scale values.
+            length_scale_bounds=LENGTH_SCALE_BOUNDS
+        )
+
+        self.gp = GaussianProcessRegressor(
+            kernel = const_kernel * rbf_kernel,
+            # This ensures that internally, y values are normalized around 0.
+            # Not doing this would cause problems since the post_mean function assumes the value 0 in unexplored regions.
+            # For example, in functions with only negative values, all explored regions with maxima would have a lower value
+            # than unexplored regions. Because the post std also assumes higher values in unexplored regions,
+            # the UCB acquisition function would always prioritise exploration, regardless of Kappa (post_mean + K * post_std).
+            normalize_y=True,
+            # This allows the regressor to run multiple times, and carrying over the adjusted kernel's prameters from previous runs.
+            n_restarts_optimizer=5
+        )
+
+        with warnings.catch_warnings():
+            # During the GP setup, some constraints are applied to the kernel parameters, which can cause convergence warnings during fitting.
+            warnings.filterwarnings("ignore", category=ConvergenceWarning)
+            self.gp.fit(X, y)
+
+        if debug:
+            print("\n--- SciKit kernel parameters after fitting ---")
+            print("Constant kernel value (variation):", self.gp.kernel_.k1.constant_value)
+            # Indirectly, a high length scale value means that the dimension has less significance on the output.
+            print("RBF kernel length scale per dimension (smoothness):", self.gp.kernel_.k2.length_scale)
+
+    # --- Evaluate the GP model on new data points ---
+    def evaluate(self, X, grid=False):
+        if grid: shape = X[0].shape; X = np.column_stack([m.ravel() for m in X])
+        mean, std = self.gp.predict(X, return_std=True)
+        if grid: mean, std = mean.reshape(*shape), std.reshape(*shape)
+        return mean, std
+    
+    # --- Evaluate the acquisition function (Upper Confidence Bound) on new data points ---
+    def evaluate_acquisition(self, X, grid=False):
+        mean, std = self.evaluate(X, grid=grid)
+        return mean + UCB_KAPPA * std
+
+    # --- Find the maximum of the acquisition function (Upper Confidence Bound) ---
+    def find_acquisition_max(self, debug=False):
+
+        initial_candidates=512
+        n_starts=32
+    
+        # Generate the starting points for the search as the best from a list of initial candidates
+        candidates = np.random.uniform(0, 1, size=(max(initial_candidates, n_starts), self.N))
+        candidates_acquisition_values = self.evaluate_acquisition(candidates)
+        starts = candidates[np.argsort(candidates_acquisition_values)[-n_starts:]]
+
+        # Use the starting points to find the maximum of the acquisition function using the L-BFGS-B method (based on gradient descent)
+        best_x, best_y = None, np.inf
+        for x in starts:
+            # UCB is a maximization function, but the minimize function is a minimization technique, so we need to negate the value of UCB.
+            result = minimize(lambda x: -self.evaluate_acquisition([x]), x, bounds=[(0, 1)] * self.N, method='L-BFGS-B')
+            if result.fun < best_y:
+                best_y = result.fun
+                best_x = result.x
+
+        if debug:
+            print("\n--- SciKit acquisition function ---")
+            with np.printoptions(formatter={'float': lambda x: f"{x:.6f}"}):
+                print("Maximum at:", best_x)
+            print("Maximum value:", -best_y)
+
+        return best_x, -best_y
+    
+
+class BoTorchGP(GPModel):
+
+    # --- Fit the Gaussian Process model ---
+    def fit(self, X, y, debug=False):
+
+        self.N = X.shape[1]
+
+        matern_kernel = MaternKernel(
+            nu=NU_SMOOTHNESS,
+            ard_num_dims=X.shape[1],
+            lengthscale_constraint=Interval(*LENGTH_SCALE_BOUNDS)
+        )
+
+        covar_module = ScaleKernel(matern_kernel)
+
+        self.gp = SingleTaskGP(
+            torch.tensor(X, dtype=torch.float64),
+            torch.tensor(y, dtype=torch.float64).unsqueeze(-1),
+            covar_module=covar_module,
+            outcome_transform=Standardize(m=1))
+
+        self.gp.train()
+        mll = ExactMarginalLogLikelihood(self.gp.likelihood, self.gp)
+        fit_gpytorch_mll(mll)
+
+        if debug:
+            print("\n--- BoTorch kernel parameters after fitting ---")
+            print("Scale Kernel constant (sigma_f^2):", self.gp.covar_module.outputscale.item())
+            print("Matern kernel length scale per dimension (smoothness):", self.gp.covar_module.base_kernel.lengthscale.detach().numpy().ravel())
+            print("Observation noise:", self.gp.likelihood.noise.item())
+
+    # --- Evaluate the GP model on new data points ---
+    def evaluate(self, X, grid=False):
+        self.gp.eval()
+        if grid: shape = X[0].shape; X = np.column_stack([m.ravel() for m in X])
+        with torch.no_grad():
+            posterior = self.gp.posterior(torch.tensor(X, dtype=torch.float64))
+            mean = posterior.mean.detach().numpy().ravel()
+            std = posterior.variance.sqrt().detach().numpy().ravel()
+        if grid: mean, std = mean.reshape(*shape), std.reshape(*shape)
+        return mean, std
+
+    ucb = None
+    def init_acquisition_function(self):
+        if not self.ucb:
+            self.ucb = UpperConfidenceBound(model=self.gp, beta=UCB_KAPPA**2) # Beta is equal to Kappa^2
+        return self.ucb
+
+    # --- Evaluate the acquisition function (Upper Confidence Bound) on new data points ---
+    def evaluate_acquisition(self, X, grid=False):
+        self.init_acquisition_function()
+        if grid: shape = X[0].shape; X = np.column_stack([m.ravel() for m in X])
+        with torch.no_grad():
+            y = self.ucb(torch.tensor(X, dtype=torch.float64).unsqueeze(1)).detach().numpy().ravel()
+        if grid: y = y.reshape(*shape)
+        return y
+
+    # --- Find the maximum of the acquisition function (Upper Confidence Bound) ---
+    def find_acquisition_max(self, debug=False):
+
+        initial_candidates=512
+        n_starts=32
+
+        best_x, best_y = optimize_acqf(
+            acq_function=self.init_acquisition_function(),
+            bounds=torch.stack([torch.zeros(self.N, dtype=torch.float64), torch.ones(self.N, dtype=torch.float64)]),
+            raw_samples=initial_candidates,
+            num_restarts=n_starts,
+            q=1  # number of points to propose (1 = sequential BO)
+        )
+        best_x, best_y = best_x.detach().numpy().ravel(), best_y.detach().numpy().item()
+
+        if debug:
+            print("\n--- BoTorch acquisition function ---")
+            with np.printoptions(formatter={'float': lambda x: f"{x:.6f}"}):
+                print("Maximum at:", best_x)
+            print("Maximum value:", best_y)
+
+        return best_x, best_y
 
 if __name__ == '__main__':
     main()
