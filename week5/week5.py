@@ -70,7 +70,7 @@ UCB_KAPPA = {
 def main():
 
     # --- Read data from files ---
-    X, y = read_data(debug=False, plot_datapoints=True)
+    X, y = read_data(debug=False, plot_datapoints=False)
     N = X.shape[1]
 
     # --- Use the Gaussian Process model from SciKit ---
@@ -403,7 +403,7 @@ class SciKitGP(GPModel):
         if debug:
             print("\n--- SciKit acquisition function ---")
             with np.printoptions(formatter={'float': lambda x: f"{x:.6f}"}):
-                print("Maximum at:", best_x)
+                print("Maximum at:", '-'.join(f'{x:.6f}' for x in best_x))
             print("Maximum value:", -best_y)
 
         return best_x, -best_y
@@ -484,7 +484,7 @@ class BoTorchGP(GPModel):
         if debug:
             print("\n--- BoTorch acquisition function ---")
             with np.printoptions(formatter={'float': lambda x: f"{x:.6f}"}):
-                print("Maximum at:", best_x)
+                print("Maximum at:", '-'.join(f'{x:.6f}' for x in best_x))
             print("Maximum value:", best_y)
 
         return best_x, best_y
