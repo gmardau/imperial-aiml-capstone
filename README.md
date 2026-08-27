@@ -26,3 +26,4 @@ Across the submissions, the approach has changed:
 * Week 2 incorporated the previous week’s data, kept tuning the length scale and UCB kappa per function, and used the accumulated observations to refine the next query.
 * Week 3 added output normalization, an ARD-style GP with a constant kernel multiplied by an RBF kernel, and gradient-based optimization of the acquisition function using multi-start L-BFGS-B.
 * Week 4 is still using a GP surrogate, but I've modified the model to the BoTorch one, and further customised the kernel and UCB parameters per function.
+* Week 5 is identical to Week 4.
