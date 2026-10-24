@@ -12,3 +12,20 @@ Pooling is the most influencial. My acquisition search does the same thing: I sa
 
 ### The interview with Andrea Dunbar highlighted the trade-offs of deploying CNNs in edge AI systems. How might reflecting on real-world deployment challenges help you decide how to benchmark success in your own BBO capstone project?
 Edge AI forces accuracy to be balanced against hard resource constraints, not judged in isolation. My setting has an analogous constraint: one query per function per week, no option to sampling more, so success shouldn't just be how much it has improved but how much information I'm getting per query spent. That reframes benchmarking around efficiency-under-constraint rather than raw performance, the same standard real deployments impose on models that look good only in the lab.
+
+---
+
+### What is the main technical justification for your current BBO approach? Which aspect of prior research or established methods supports your choice?
+My choice was a Gaussian Process surrogate with a UCB acquisition function, tuned per-dimension (ARD) and per-function (Matérn smoothness, length-scale bounds, Kappa). This is justified by the extreme query budget (one point per week). GPs are the standard surrogate for this regime because they give calibrated uncertainty from very few points, and UCB gives an explicit, tunable exploration-exploitation knob via a single scalar. I've explored other models, such as SVMs, NNs, but none are quite as good as GP surrogates.
+
+### Which academic papers have you used to guide your design? Which ideas or techniques from the literature are most relevant, and how do they strengthen your project?
+I've used two. Srinivas et al.'s GP-UCB paper (2010) is the additional read I've made for the UCB acquisition formula and its regret guarantees. Lastly, Balandat et al.'s BoTorch paper (2020) for the BoTorch implementation choice over SciKit.
+
+### Which third-party libraries or frameworks (e.g. PyTorch, TensorFlow, scikit-learn) are central to your approach? Why were these the right choices compared with possible alternatives?
+I've used BoTorch/GPyTorch as the primary framework because it optimizes acquisition functions via autodiff (optimize_acqf) rather than naive random-restart optimization, and natively supports output standardization and constrained kernels. SciKit GP is still kept as a simpler, more transparent baseline for sanity-checkin.
+
+### How do you plan to document and present these justifications in your GitHub repository so that peers, facilitators and future employers can clearly understand your reasoning?
+I've been adding the reasoning behind my choices on the main repository README file as well as individual week README files, with more details, so that the iterative process is visible, not just the final result.
+
+### Looking ahead, what additional sources (research, benchmarks, software) might you consult to continue refining your strategy?
+The next step would be to do some additional reading on ARD/length-scale parameters for a more principled way to set bounds other than manual tuning, which is what I've been doing so far.
