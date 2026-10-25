@@ -39,6 +39,6 @@ Across the submissions, the approach has changed:
 * `implementation/` has each week's script (`week1.py` to `week10.py`), and the graphs they save in `figures/`.
 * `assignments/` has each week's answers to the course questions (`week1.md` to `week10.md`), plus `week9_report.md` on the week 9 approach.
 * `initial_data/` and `weekly_data/` hold the starting data and each week's queries and results.
-* `datasheet/` has the [datasheet](datasheet/datasheet.md) for the data set: what it contains, how it was collected, and its gaps and intended uses.
-* `model_card/` has the [model card](model_card/model_card.md) for the optimisation approach: how it decides, how it performed, and its assumptions and limitations.
+* [datasheet.md](datasheet.md) is the datasheet for the data set: what it contains, how it was collected, and its gaps and intended uses.
+* [model_card.md](model_card.md) is the model card for the optimisation approach: how it decides, how it performed, and its assumptions and limitations.
 * One uv environment at the root covers every week. Run a week from `implementation/`, e.g. `cd implementation && uv run python week10.py`.

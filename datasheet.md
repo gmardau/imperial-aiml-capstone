@@ -8,7 +8,7 @@
 
 ## Composition
 
-There are eight functions. Each takes inputs in the unit hypercube [0, 1]^d and returns one number; [function_descriptions.md](../function_descriptions.md) has their descriptions from the brief.
+There are eight functions. Each takes inputs in the unit hypercube [0, 1]^d and returns one number; [function_descriptions.md](function_descriptions.md) has their descriptions from the brief.
 
 | Function | Inputs | Initial points | Weekly results | Total | Output range so far |
 |---|---|---|---|---|---|

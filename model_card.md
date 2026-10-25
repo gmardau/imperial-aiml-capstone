@@ -4,7 +4,7 @@
 
 - **Name:** per-function Bayesian optimisation with an adaptive trust region.
 - **Type:** a sequential, model-based black-box optimiser: a Gaussian-process (GP) surrogate with an acquisition function, plus a least-squares physical model for function 1.
-- **Version:** week 10, in [implementation/week10.py](../implementation/week10.py). Every earlier week's version is kept in `implementation/`.
+- **Version:** week 10, in [implementation/week10.py](implementation/week10.py). Every earlier week's version is kept in `implementation/`.
 
 ## Intended use
 
@@ -88,6 +88,6 @@ How it decides now:
 Yes, for its purpose. It explains how the approach decides, why, and where it can fail, and it points to the details instead of repeating them:
 - the code for the exact settings;
 - `weekly_data/` for every query;
-- the [week 9 report](../assignments/week9_report.md) for the evidence behind each choice.
+- the [week 9 report](assignments/week9_report.md) for the evidence behind each choice.
 
 More detail would mostly duplicate those. The one addition worth making is the week 9 and 10 results, once they're back.
