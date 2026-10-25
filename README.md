@@ -27,3 +27,18 @@ Across the submissions, the approach has changed:
 * Week 3 added output normalization, an ARD-style GP with a constant kernel multiplied by an RBF kernel, and gradient-based optimization of the acquisition function using multi-start L-BFGS-B.
 * Week 4 is still using a GP surrogate, but I've modified the model to the BoTorch one, and further customised the kernel and UCB parameters per function.
 * Week 5 is identical to Week 4.
+* Week 6 lowered most length-scale upper bounds to 0.5, switched function 1 to a rougher Matérn kernel (ν = 0.5), raised the UCB kappa for most functions (up to 5), and used more restarts when optimising the acquisition function.
+* Week 7 narrowed the length-scale bounds of functions 1, 2, 3 and 7 (function 1 to 0.02–0.03), and raised kappa to 5 for functions 4 and 7.
+* Week 8 is identical to Week 7.
+* Week 9 replaced the hand-tuned setup with a method chosen per function, based on the brief and on tests with the data so far (see [assignments/week9_report.md](assignments/week9_report.md)):
+  * Function 7 turned out to be the Hartmann-6 benchmark (it matches every observation exactly), but I'm not using its known maximum: that would defeat the purpose of the project.
+  * Function 1 uses a radiation-source model: the log of each reading's size is a quadratic bowl around the source, so least squares locates it.
+  * The other functions use BoTorch's default GP (priors instead of hand-set length-scale bounds) with Log Expected Improvement, searched within ±0.25 of the best point so far. Function 3 is modelled on −log(−y), since it can't go above 0, and function 5 on log(y).
+
+## 5. Repository structure
+* `implementation/` has each week's script (`week1.py` to `week10.py`), and the graphs they save in `figures/`.
+* `assignments/` has each week's answers to the course questions (`week1.md` to `week10.md`), plus `week9_report.md` on the week 9 approach.
+* `initial_data/` and `weekly_data/` hold the starting data and each week's queries and results.
+* `datasheet/` has the [datasheet](datasheet/datasheet.md) for the data set: what it contains, how it was collected, and its gaps and intended uses.
+* `model_card/` has the [model card](model_card/model_card.md) for the optimisation approach: how it decides, how it performed, and its assumptions and limitations.
+* One uv environment at the root covers every week. Run a week from `implementation/`, e.g. `cd implementation && uv run python week10.py`.

@@ -1,0 +1,15 @@
+[project]
+name = "imperial-ai-ml-capstone"
+version = "0.1.0"
+description = "Black-box optimisation capstone for the Imperial AI/ML programme"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "botorch>=0.18.1",
+    "gpytorch>=1.15.2",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.3",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.18.1",
+    "torch>=2.13.0",
+]
