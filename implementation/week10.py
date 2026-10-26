@@ -1,4 +1,4 @@
-# Week 10: propose the next query for each of the eight black-box functions.
+# Week 10 onwards: propose the next query for each of the eight black-box functions.
 #
 #   Functions 2-8: Bayesian optimisation. A Gaussian process (GP) is fitted to every
 #     observation so far, and the next query is the point with the highest Log Expected
@@ -12,7 +12,7 @@
 #   uv run python week10.py                # all eight functions, no graphs
 #   uv run python week10.py 3              # function 3 only
 #   uv run python week10.py --plots show   # show the graphs in windows
-#   uv run python week10.py --plots save   # save the graphs to figures/week10/
+#   uv run python week10.py --plots save   # save the graphs to figures/weekN/
 
 import argparse
 import warnings
@@ -32,9 +32,13 @@ from matplotlib.colors import ListedColormap
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 
-WEEK_NO = 10
 HERE = Path(__file__).resolve().parent  # the implementation folder
 ROOT = HERE.parent  # the repository, with initial_data/ and weekly_data/
+
+# The round to propose: the one after the last week whose results are in weekly_data/, so
+# the same script works every week from week 10 on (and never proposes a week before 10)
+LAST_RESULTS = max(week for week in range(1, 100) if (ROOT / f"weekly_data/week{week}_outputs.txt").exists())
+WEEK_NO = max(10, LAST_RESULTS + 1)
 
 # Output transforms as (forward, inverse, label): the GP is fitted to forward(y), its
 # predictions are mapped back to the original units with inverse(), and the label names
@@ -54,6 +58,7 @@ TRANSFORMS = {
 #              "source"    -> fit a radiation-source model (function 1)
 #              "hartmann6" -> query the known maximum of Hartmann-6 (function 7)
 #   transform: fit the GP to a transformed output (a key of TRANSFORMS)
+#   noise_free: fix the GP's noise near zero, so it follows every observation exactly
 SETTINGS = {
     1: dict(method="source"),
     2: dict(method="gp"),
@@ -61,7 +66,10 @@ SETTINGS = {
     # Fitted to y directly, the GP predicted impossible values above 0, and its query
     # jumped around when any single observation was left out.
     3: dict(method="gp", transform="neg_log"),
-    4: dict(method="gp"),
+    # In week 9 it jumped to +0.48, far above the GP's prediction. With learned noise, the GP
+    # treated that as a lucky reading and proposed a near-repeat of it; noise-free, it follows
+    # the jump and steps further uphill.
+    4: dict(method="gp", noise_free=True),
     # Yield is positive and spans 0.1 to 8,662, so log(y) is much easier to model.
     5: dict(method="gp", transform="log"),
     6: dict(method="gp"),
@@ -111,8 +119,12 @@ def format_query(x):
 # BoTorch's default GP: an RBF kernel with one length scale per input, and priors on the
 # length scales and the noise level instead of hand-set bounds (the old bounds, not the
 # data, were deciding the length scales). Outputs are standardised inside the model.
-def fit_gp(X, t):
-    model = SingleTaskGP(torch.tensor(X), torch.tensor(t).unsqueeze(-1), outcome_transform=Standardize(m=1))
+# With noise_free, the noise is fixed near zero instead of learned, so the GP passes
+# through every observation.
+def fit_gp(X, t, noise_free=False):
+    Y = torch.tensor(t).unsqueeze(-1)
+    Yvar = torch.full_like(Y, 1e-6 * t.var()) if noise_free else None
+    model = SingleTaskGP(torch.tensor(X), Y, Yvar, outcome_transform=Standardize(m=1))
     fit_gpytorch_mll(ExactMarginalLogLikelihood(model.likelihood, model))
     return model
 
@@ -155,11 +167,12 @@ def trust_region_length(y, n_initial, weeks):
 # Expected improvement is how much a point is expected to beat the best value so far. It
 # weighs a high mean against high uncertainty with no kappa to tune, and LogEI is its
 # numerically stable form (Ament et al., 2023). "Best so far" is the GP's highest mean at
-# the observed points, so that one lucky noisy reading doesn't set the bar.
-def propose_gp(X, y, transform=None, length=START_LENGTH):
+# the observed points, so that one lucky noisy reading doesn't set the bar; for a
+# noise-free function it's simply the best observed value.
+def propose_gp(X, y, transform=None, length=START_LENGTH, noise_free=False):
     forward, inverse, label = TRANSFORMS[transform]
     t = forward(y)
-    model = fit_gp(X, t)
+    model = fit_gp(X, t, noise_free)
 
     # The GP's mean and standard deviation at the inputs X_new
     def predict(X_new):
@@ -167,7 +180,7 @@ def propose_gp(X, y, transform=None, length=START_LENGTH):
             posterior = model.posterior(torch.tensor(X_new))
         return posterior.mean.squeeze(-1).numpy(), posterior.variance.sqrt().squeeze(-1).numpy()
 
-    acq = LogExpectedImprovement(model, best_f=predict(X)[0].max())
+    acq = LogExpectedImprovement(model, best_f=t.max() if noise_free else predict(X)[0].max())
 
     # The trust region: centred on the best point, with its sides scaled by the GP's length
     # scales (normalised so that their product is 1, as in TuRBO), and clipped to [0, 1]
@@ -366,6 +379,24 @@ def plot_function(f, X, y, n_initial, x_next, t, label, predict):
     return fig
 
 
+# One figure for all eight functions: the best result so far after each week (week 0 is the
+# best of the initial data), with an orange dot for every week that found a new best
+def plot_progress(weeks):
+    fig, axes = plt.subplots(2, 4, figsize=(13, 5.5), layout="constrained")
+    for f, ax in zip(range(1, 9), axes.ravel()):
+        _, y, n_initial = load_data(f, weeks)
+        best = np.maximum.accumulate(np.concatenate([[y[:n_initial].max()], y[n_initial:]]))
+        week = np.array([0, *weeks])
+        new = np.flatnonzero(np.diff(best) > 0) + 1
+        ax.step(week, best, where="post", color=MODEL, lw=2)
+        ax.scatter(week[0], best[0], s=34, color=INITIAL, zorder=3)
+        ax.scatter(week[new], best[new], s=34, color=WEEKLY, zorder=3)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set(title=f"Function {f}", xlabel="week")
+    fig.suptitle("Best result so far, by week (orange: a new best)", fontsize=12)
+    return fig
+
+
 # --- Main ---
 
 def main():
@@ -380,6 +411,9 @@ def main():
     torch.manual_seed(0)
     plt.switch_backend("TkAgg" if args.plots == "show" else "Agg")
     plt.rcParams.update(PLOT_STYLE)
+    figures = HERE / f"figures/week{WEEK_NO}"
+    if args.plots == "save":
+        figures.mkdir(parents=True, exist_ok=True)
 
     weeks = [week for week in range(1, WEEK_NO) if (ROOT / f"weekly_data/week{week}_outputs.txt").exists()]
     if len(weeks) < WEEK_NO - 1:
@@ -399,16 +433,22 @@ def main():
             x_next, t, label, predict = propose_hartmann6(X, y)
         else:
             length = trust_region_length(y, n_initial, weeks)
-            x_next, t, label, predict = propose_gp(X, y, SETTINGS[f].get("transform"), length)
+            x_next, t, label, predict = propose_gp(X, y, SETTINGS[f].get("transform"), length,
+                                                   SETTINGS[f].get("noise_free", False))
         print(f"  next query: {format_query(x_next)}")
         queries[f] = x_next
 
         if args.plots != "none":
             fig = plot_function(f, X, y, n_initial, x_next, t, label, predict)
             if args.plots == "save":
-                (HERE / f"figures/week{WEEK_NO}").mkdir(parents=True, exist_ok=True)
-                fig.savefig(HERE / f"figures/week{WEEK_NO}/function_{f}.png", dpi=110)
+                fig.savefig(figures / f"function_{f}.png", dpi=110)
                 plt.close(fig)
+
+    if args.plots != "none":
+        fig = plot_progress(weeks)
+        if args.plots == "save":
+            fig.savefig(figures / "progress.png", dpi=110)
+            plt.close(fig)
 
     print(f"\n--- Week {WEEK_NO} queries ---")
     for f, x in queries.items():

@@ -341,6 +341,24 @@ def plot_function(f, X, y, n_initial, x_next, t, label, predict):
     return fig
 
 
+# One figure for all eight functions: the best result so far after each week (week 0 is the
+# best of the initial data), with an orange dot for every week that found a new best
+def plot_progress(weeks):
+    fig, axes = plt.subplots(2, 4, figsize=(13, 5.5), layout="constrained")
+    for f, ax in zip(range(1, 9), axes.ravel()):
+        _, y, n_initial = load_data(f, weeks)
+        best = np.maximum.accumulate(np.concatenate([[y[:n_initial].max()], y[n_initial:]]))
+        week = np.array([0, *weeks])
+        new = np.flatnonzero(np.diff(best) > 0) + 1
+        ax.step(week, best, where="post", color=MODEL, lw=2)
+        ax.scatter(week[0], best[0], s=34, color=INITIAL, zorder=3)
+        ax.scatter(week[new], best[new], s=34, color=WEEKLY, zorder=3)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set(title=f"Function {f}", xlabel="week")
+    fig.suptitle("Best result so far, by week (orange: a new best)", fontsize=12)
+    return fig
+
+
 # --- Main ---
 
 def main():
@@ -355,6 +373,9 @@ def main():
     torch.manual_seed(0)
     plt.switch_backend("TkAgg" if args.plots == "show" else "Agg")
     plt.rcParams.update(PLOT_STYLE)
+    figures = HERE / f"figures/week{WEEK_NO}"
+    if args.plots == "save":
+        figures.mkdir(parents=True, exist_ok=True)
 
     weeks = [week for week in range(1, WEEK_NO) if (ROOT / f"weekly_data/week{week}_outputs.txt").exists()]
     if len(weeks) < WEEK_NO - 1:
@@ -380,9 +401,14 @@ def main():
         if args.plots != "none":
             fig = plot_function(f, X, y, n_initial, x_next, t, label, predict)
             if args.plots == "save":
-                (HERE / f"figures/week{WEEK_NO}").mkdir(parents=True, exist_ok=True)
-                fig.savefig(HERE / f"figures/week{WEEK_NO}/function_{f}.png", dpi=110)
+                fig.savefig(figures / f"function_{f}.png", dpi=110)
                 plt.close(fig)
+
+    if args.plots != "none":
+        fig = plot_progress(weeks)
+        if args.plots == "save":
+            fig.savefig(figures / "progress.png", dpi=110)
+            plt.close(fig)
 
     print(f"\n--- Week {WEEK_NO} queries ---")
     for f, x in queries.items():

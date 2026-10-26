@@ -141,6 +141,7 @@ With `--plots show` or `--plots save`, `week9.py` draws one figure per function,
 - **Best observation:** marked with a black ring in every panel. The next query is in green.
 - **Negative readings (function 1 only):** drawn hollow, because its graphs show the size of each reading, which hides the sign.
 - **Model mean (2D functions only):** a map of the model's mean over the whole input space.
+- **Progress (one extra figure, `progress.png`):** every function's best result so far, by week.
 - **Slices:** one per input, through the next query, varying that input alone. Each shows the model's mean ± 1 standard deviation. The dots are all the observations projected onto that input, so they don't lie on the slice.
 
 **Function 1.** The source model's bowl. Readings fall off by hundreds of orders of magnitude away from the centre (the green cross).
