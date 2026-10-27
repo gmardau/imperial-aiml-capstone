@@ -36,7 +36,7 @@ Across the submissions, the approach has changed:
   * The other functions use BoTorch's default GP (priors instead of hand-set length-scale bounds) with Log Expected Improvement, searched within ±0.25 of the best point so far. Function 3 is modelled on −log(−y), since it can't go above 0, and function 5 on log(y).
 
 ## 5. Repository structure
-* `implementation/` has each week's script (`week1.py` to `week10.py`), and the graphs they save in `figures/`.
+* `implementation/` has each week's script (`week1.py` to `week11.py`), and the graphs they save in `figures/`.
 * `assignments/` has each week's answers to the course questions (`week1.md` to `week10.md`), plus `week9_report.md` on the week 9 approach.
 * `initial_data/` and `weekly_data/` hold the starting data and each week's queries and results.
 * [datasheet.md](datasheet.md) is the datasheet for the data set: what it contains, how it was collected, and its gaps and intended uses.
