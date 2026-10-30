@@ -34,11 +34,19 @@ Across the submissions, the approach has changed:
   * Function 7 turned out to be the Hartmann-6 benchmark (it matches every observation exactly), but I'm not using its known maximum: that would defeat the purpose of the project.
   * Function 1 uses a radiation-source model: the log of each reading's size is a quadratic bowl around the source, so least squares locates it.
   * The other functions use BoTorch's default GP (priors instead of hand-set length-scale bounds) with Log Expected Improvement, searched within ±0.25 of the best point so far. Function 3 is modelled on −log(−y), since it can't go above 0, and function 5 on log(y).
+* Week 10 made the search box a TuRBO-style trust region: its side doubles after a week that improved the best value and halves after one that didn't. Function 4's GP became noise-free, after its week 9 result jumped well above the GP's prediction.
+* Weeks 11 to 13 used the same code (`week11.py` to `week13.py` are copies of week 10's). I set a few queries by hand where the code's choice looked weak:
+  * Week 11, function 5: `1.0-0.95-1.0-1.0`, to test the one direction from the (1, 1, 1, 1) corner that hadn't been tried. It was lower, so the corner is the maximum.
+  * Week 12, function 1: `0.628850-0.629320`, a step up-right of the week 9 point. Readings at the source had dropped slightly each week as the source model's centre drifted down-left. It gave a new best.
+  * Week 12, function 4: `0.359765-0.376818-0.370648-0.391546`, the peak of a second-degree fit to the points near the best. It's a shorter step than the noise-free GP's, which had overshot in week 11.
+  * Week 13, function 1: `0.628295-0.628804`, the peak of a curve through the four readings near the source.
+  * Week 13, function 3: `1.000000-0.525000-0.450318`, the best point with only x2 moved, in the direction that had improved. A change of 0.012 in x3 had made the result ten times worse.
+  * Week 13, function 4: `0.393456-0.365479-0.376885-0.409609`, a small step (0.013) from the best in the GP's uphill direction, since its larger steps had overshot three weeks in a row.
 
 ## 5. Repository structure
-* `implementation/` has each week's script (`week1.py` to `week12.py`), and the graphs they save in `figures/`.
-* `assignments/` has each week's answers to the course questions (`week1.md` to `week10.md`), plus `week9_report.md` on the week 9 approach.
+* `implementation/` has each week's script (`week1.py` to `week13.py`), and the graphs they save in `figures/`.
+* `assignments/` has each week's answers to the course questions (`week1.md` to `week13.md`), plus `week9_report.md` on the week 9 approach and `week12_presentation.pdf`, the project presentation.
 * `initial_data/` and `weekly_data/` hold the starting data and each week's queries and results.
 * [datasheet.md](datasheet.md) is the datasheet for the data set: what it contains, how it was collected, and its gaps and intended uses.
 * [model_card.md](model_card.md) is the model card for the optimisation approach: how it decides, how it performed, and its assumptions and limitations.
-* One uv environment at the root covers every week. Run a week from `implementation/`, e.g. `cd implementation && uv run python week10.py`.
+* One uv environment at the root covers every week. Run a week from `implementation/`, e.g. `cd implementation && uv run python week13.py`.
