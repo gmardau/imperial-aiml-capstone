@@ -1,11 +1,21 @@
-# Imperial AI/ML Capstone Project
+# Imperial AI/ML Capstone: Black-Box Optimisation
 
-## 1. Project Overview
+## Non-technical explanation
+Imagine having to find the best setting of a machine you can't see inside, where each test takes a week and you only get thirteen tries. This project did exactly that for eight hidden "black-box" functions, standing in for problems like tuning an AI model or a chemical recipe. Each week I chose one new input to test per function, using a statistical model that learns from every result so far and estimates where the best values are likely to be, and how unsure it is. Over thirteen weeks, every function improved on its starting data, and one went from no signal at all to a clear peak.
+
+## Project overview
 This capstone is a black-box optimization project over eight hidden objective functions. The goal is to decide which new point to query next using only previously observed inputs and outputs, without access to gradients or the true function form. That makes it a good stand-in for real ML problems such as hyperparameter tuning, experiment design, and any setting where evaluations are expensive or limited.
 
 The project is useful and relevant because it teaches how to make good decisions under uncertainty. It combines modeling noisy data, estimating uncertainty, and balancing exploration against exploitation. Those are the same ideas that matter when choosing experiments, tuning models, or prioritizing data collection in a future ML role.
 
-## 2. Inputs and outputs
+## Challenge objectives
+The main objective is to identify the next query point that best improves the hidden objective for each function; in this case, maximisation for all functions. Because the functions are black boxes, the challenge is not just to chase high responses, but to decide when to explore uncertain parts of the space and when to exploit a promising region.
+
+The main constraints are the small number of observations, the lack of derivatives, the varying dimensionality, and the fact that the functions can be smooth, multimodal, spiky, or nearly flat. In some cases the data suggests a clear peak; in others, the safest choice is to keep exploring until the shape of the function becomes clearer.
+
+## Data
+The data comes from the course. It has an initial sample for each function, and then the result of each weekly query, returned by the course portal.
+
 Each function takes a normalized input vector in the unit hypercube (i.e. between 0 and 1), with dimensionality ranging from 2D to 8D depending on the function. The output of all functions is a single scalar value. Some functions do not have any output bounds, while others are only negative or positive. The available data starts with an initial sample set and then grows by one weekly query and response per function.
 
 For submission purposes, each query must follow a single hyphen-separated string with each value rounded to six decimal places.
@@ -13,40 +23,82 @@ For submission purposes, each query must follow a single hyphen-separated string
 **Sample input:** 0.1859092-0.27476673
 **Sample output:** -31.490847736812487
 
-## 3. Challenge Objectives
-The main objective is to identify the next query point that best improves the hidden objective for each function; in this case, maximisation for all functions. Because the functions are black boxes, the challenge is not just to chase high responses, but to decide when to explore uncertain parts of the space and when to exploit a promising region.
+| Function | Inputs | Initial points | Weekly results | Total |
+|---|---|---|---|---|
+| 1, 2 | 2 | 10 each | 13 each | 23 each |
+| 3 | 3 | 15 | 13 | 28 |
+| 4 | 4 | 30 | 13 | 43 |
+| 5 | 4 | 20 | 13 | 33 |
+| 6 | 5 | 20 | 13 | 33 |
+| 7 | 6 | 30 | 13 | 43 |
+| 8 | 8 | 40 | 13 | 53 |
 
-The main constraints are the small number of observations, the lack of derivatives, the varying dimensionality, and the fact that the functions can be smooth, multimodal, spiky, or nearly flat. In some cases the data suggests a clear peak; in others, the safest choice is to keep exploring until the shape of the function becomes clearer.
+The course's description of each function is in [function_descriptions.md](function_descriptions.md). The [datasheet](documentation/datasheet.md) describes the data in detail: its structure, noise, gaps and intended uses.
 
-## 4. Technical Approach
-My first approach used a Gaussian Process with an RBF kernel and an Upper Confidence Bound acquisition function. I started by manually inspecting each function, plotting the observed points, and using simple heuristics to decide whether a function looked more exploratory or exploitative. For lower-dimensional functions, visual inspection and feature/output correlation were useful; for higher-dimensional ones, I relied more on the GP model itself.
+## Model
+The final method uses Bayesian optimisation for functions 2 to 8, with a different model for function 1:
 
-Across the submissions, the approach has changed:
-* Week 1 used a fixed GP setup with a simple RBF kernel and a dense grid search over the acquisition function.
-* Week 2 incorporated the previous week’s data, kept tuning the length scale and UCB kappa per function, and used the accumulated observations to refine the next query.
-* Week 3 added output normalization, an ARD-style GP with a constant kernel multiplied by an RBF kernel, and gradient-based optimization of the acquisition function using multi-start L-BFGS-B.
-* Week 4 is still using a GP surrogate, but I've modified the model to the BoTorch one, and further customised the kernel and UCB parameters per function.
-* Week 5 is identical to Week 4.
-* Week 6 lowered most length-scale upper bounds to 0.5, switched function 1 to a rougher Matérn kernel (ν = 0.5), raised the UCB kappa for most functions (up to 5), and used more restarts when optimising the acquisition function.
-* Week 7 narrowed the length-scale bounds of functions 1, 2, 3 and 7 (function 1 to 0.02–0.03), and raised kappa to 5 for functions 4 and 7.
-* Week 8 is identical to Week 7.
-* Week 9 replaced the hand-tuned setup with a method chosen per function, based on the brief and on tests with the data so far (see [assignments/week9_report.md](assignments/week9_report.md)):
-  * Function 7 turned out to be the Hartmann-6 benchmark (it matches every observation exactly), but I'm not using its known maximum: that would defeat the purpose of the project.
-  * Function 1 uses a radiation-source model: the log of each reading's size is a quadratic bowl around the source, so least squares locates it.
-  * The other functions use BoTorch's default GP (priors instead of hand-set length-scale bounds) with Log Expected Improvement, searched within ±0.25 of the best point so far. Function 3 is modelled on −log(−y), since it can't go above 0, and function 5 on log(y).
-* Week 10 made the search box a TuRBO-style trust region: its side doubles after a week that improved the best value and halves after one that didn't. Function 4's GP became noise-free, after its week 9 result jumped well above the GP's prediction.
-* Weeks 11 to 13 used the same code (`week11.py` to `week13.py` are copies of week 10's). I set a few queries by hand where the code's choice looked weak:
-  * Week 11, function 5: `1.0-0.95-1.0-1.0`, to test the one direction from the (1, 1, 1, 1) corner that hadn't been tried. It was lower, so the corner is the maximum.
-  * Week 12, function 1: `0.628850-0.629320`, a step up-right of the week 9 point. Readings at the source had dropped slightly each week as the source model's centre drifted down-left. It gave a new best.
-  * Week 12, function 4: `0.359765-0.376818-0.370648-0.391546`, the peak of a second-degree fit to the points near the best. It's a shorter step than the noise-free GP's, which had overshot in week 11.
-  * Week 13, function 1: `0.628295-0.628804`, the peak of a curve through the four readings near the source.
-  * Week 13, function 3: `1.000000-0.525000-0.450318`, the best point with only x2 moved, in the direction that had improved. A change of 0.012 in x3 had made the result ten times worse.
-  * Week 13, function 4: `0.393456-0.365479-0.376885-0.409609`, a small step (0.013) from the best in the GP's uphill direction, since its larger steps had overshot three weeks in a row.
+- **Surrogate:** a Gaussian process (GP), using BoTorch's default model (Balandat et al., 2020). It fits every observation so far and predicts each point's value with an uncertainty.
+- **Acquisition:** the next query is the point with the highest Log Expected Improvement (Ament et al., 2023). This is how much the point is expected to beat the best value so far, so it balances a high prediction against high uncertainty.
+- **Trust region:** the search is limited to a box around the best point, as in TuRBO (Eriksson et al., 2019). The box doubles after a week that improved the best value and halves after one that didn't.
+- **Function 1:** almost all its readings are about 0, which a GP can't learn from. It uses a radiation-source model instead: least squares fits a bowl to the log of each reading's size, and the query is the bowl's centre.
 
-## 5. Repository structure
-* `implementation/` has each week's script (`week1.py` to `week13.py`), and the graphs they save in `figures/`.
-* `assignments/` has each week's answers to the course questions (`week1.md` to `week13.md`), plus `week9_report.md` on the week 9 approach and `week12_presentation.pdf`, the project presentation.
+I chose a GP because there are only 2 to 8 inputs and under 60 observations per function. That's where GPs work best, and their uncertainty estimates are what the acquisition needs. Log Expected Improvement replaced the Upper Confidence Bound I used in weeks 1 to 8, because that needs a hand-set exploration weight, and high weights wasted queries on the edges of the space. The trust region focuses the last few queries where they're most likely to pay off.
+
+- **The method:** the [model card](documentation/model_card.md) describes it in detail, with its performance, limitations and trade-offs.
+- **How it changed:** the [technical approach](documentation/technical_approach.md) traces it week by week, including the queries I set by hand in weeks 11 to 13.
+- **Walkthrough:** the notebook [method_and_results.ipynb](implementation/method_and_results.ipynb) runs through the method and its results.
+
+## Hyperparameter optimisation
+There are two kinds of hyperparameter:
+
+- **The GP's own:** a length scale for each input (how quickly the function changes along it), the output scale and the noise level. They're fitted automatically every week, by maximising the marginal likelihood of the data, with BoTorch's default priors on the length scales and the noise (Hvarfner et al., 2024). In weeks 4 to 8 I set bounds on the length scales by hand, but the fitted values kept hitting those bounds, so the bounds rather than the data were deciding them.
+- **The method's settings:** the acquisition function, the trust region's starting size and update rule, the kernel, and each function's output scale and noise setting. I chose them in week 9 by testing on the data so far:
+  - how well each model ranked observations it hadn't seen (leave-one-out);
+  - how much its query moved when one observation was left out;
+  - simulated final rounds on test functions with known maxima.
+
+  In week 10, RBF and Matérn kernels gave very similar results, so I kept the simpler RBF. Before week 9, I tuned the exploration weight (kappa) and the length-scale bounds by hand for each function, every week.
+
+In hindsight, the noise setting mattered more than any other choice. Function 4's noise-free setting came from a single surprising result, and it made the model overconfident.
+
+## Results
+![Best result so far for each function, by week](implementation/figures/final_progress.png)
+
+Week 0 is the best of the initial data, and orange marks a new best.
+
+| Function | Best initial | Final best | Found in week |
+|---|---|---|---|
+| 1 | 7.7e-16 | 1.99938 | 13 |
+| 2 | 0.611 | 0.718 | 10 |
+| 3 | −0.0348 | −0.00070 | 11 |
+| 4 | −4.03 | 0.571 | 10 |
+| 5 | 1,089 | 8,662 | 5 |
+| 6 | −0.714 | −0.153 | 13 |
+| 7 | 1.365 | 3.182 | 13 |
+| 8 | 9.598 | 9.989 | 13 |
+
+- **Every function beat its initial data,** and the final method (from week 9) improved seven of the eight. Function 5 was already at its maximum, the (1, 1, 1, 1) corner.
+- **Function 1** went from no signal at all to a clear peak, once the model treated it as a radiation source.
+- **Function 7** is the Hartmann-6 benchmark, which I treated as a black box. Its final value is 96% of the benchmark's known maximum.
+- **Knowing how much to trust each result mattered most.** The GP's uncertainty was too narrow: only about a quarter of results fell inside its 68% range. Some functions turned out to be noise-free, and others noisy.
+- **Hand-set queries in the final weeks worked when they stayed close to points already measured:** four of the seven that aimed to beat the best value did.
+
+## Repository structure
+* `implementation/` has each week's script (`week1.py` to `week13.py`), the graphs they save in `figures/`, and the notebook [method_and_results.ipynb](implementation/method_and_results.ipynb). `figures/final_progress.png` is the final progress graph.
+* `documentation/` has the [datasheet](documentation/datasheet.md), the [model card](documentation/model_card.md) and the week-by-week [technical approach](documentation/technical_approach.md).
+* `assignments/` has each week's answers to the course questions (`week1.md` to `week13.md`) and `final_repository.md`. It also has `week9_report.md` on the week 9 approach and `week12_presentation.pdf`, the project presentation.
 * `initial_data/` and `weekly_data/` hold the starting data and each week's queries and results.
-* [datasheet.md](datasheet.md) is the datasheet for the data set: what it contains, how it was collected, and its gaps and intended uses.
-* [model_card.md](model_card.md) is the model card for the optimisation approach: how it decides, how it performed, and its assumptions and limitations.
-* One uv environment at the root covers every week. Run a week from `implementation/`, e.g. `cd implementation && uv run python week13.py`.
+* `function_descriptions.md` has the course's description of each function.
+
+## How to run
+One uv environment at the root covers every week and the notebook:
+
+```
+uv sync
+cd implementation
+uv run python week13.py               # propose the next round's queries, no graphs
+uv run python week13.py --plots save  # also save the graphs to figures/weekN/
+```
+
+`week13.py` proposes the round after the latest results in `weekly_data/`. To see the method and results, open `implementation/method_and_results.ipynb` with the repository's `.venv` as the kernel (for example in VS Code). You can also rerun it from the root with `uv run jupyter nbconvert --to notebook --execute --inplace implementation/method_and_results.ipynb`.
